@@ -1,0 +1,52 @@
+Vagrant.configure("2") do |config|
+  # Define the first machine (Server)
+  config.vm.define "tomartinS" do |server|
+    server.vm.box = "debian/bookworm64"
+    server.vm.hostname = "user1S"
+    server.vm.network "private_network", ip: "192.168.56.110"
+    
+    server.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    server.vm.provision "shell", inline: <<-SHELL
+      # Disable swap as required by K3s
+      sudo swapoff -a
+      # Install K3s in server mode
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --node-ip=192.168.56.110" sh -
+    SHELL
+  end
+
+  # Define the second machine (ServerWorker)
+  config.vm.define "tomartinSW" do |worker|
+    worker.vm.box = "debian/bookworm64"
+    worker.vm.hostname = "user2SW"
+    worker.vm.network "private_network", ip: "192.168.56.111"
+
+    worker.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    worker.vm.provision "shell", inline: <<-SHELL
+      # Disable swap as required by K3s
+      sudo swapoff -a
+    SHELL
+
+    # Provisioning for joining the cluster as an agent
+    worker.vm.provision "shell", inline: <<-SHELL
+      # Wait for the server to set up K3s
+      sleep 60
+      
+      # Retrieve the K3s token from the server and join the cluster
+      SERVER_IP=192.168.56.110
+      K3S_TOKEN=$(ssh -o StrictHostKeyChecking=no vagrant@${SERVER_IP} sudo cat /var/lib/rancher/k3s/server/node-token)
+      K3S_URL="https://${SERVER_IP}:6443"
+      curl -sfL https://get.k3s.io | K3S_URL=$K3S_URL K3S_TOKEN=$K3S_TOKEN sh -
+    SHELL
+  end
+
+  # Configure SSH access
+  config.ssh.insert_key = false
+end
